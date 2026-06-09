@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Geo Bucket List & Stamp Passport</title>
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700&family=Syncopate:wght@700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0b0f19;
+            --card: #151d30;
+            --accent: #38bdf8;
+            --success: #34d399;
+            --text: #f8fafc;
+        }
+
+        body {
+            font-family: 'Montserrat', sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        h1 {
+            font-family: 'Syncopate', sans-serif;
+            font-size: 1.5rem;
+            color: var(--accent);
+            text-align: center;
+            margin-bottom: 30px;
+            letter-spacing: 2px;
+        }
+
+        .location-card {
+            background: var(--card);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 15px;
+            width: 100%;
+            max-width: 400px;
+            box-sizing: border-box;
+            border: 1px solid #23304d;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .location-title {
+            font-size: 1.2rem;
+            font-weight: 700;
+            margin: 0 0 5px 0;
+        }
+
+        .location-coords {
+            font-size: 0.8rem;
+            color: #64748b;
+            margin-bottom: 15px;
+        }
+
+        .status-badge {
+            font-size: 0.75rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            padding: 4px 8px;
+            border-radius: 4px;
+            display: inline-block;
+            margin-bottom: 15px;
+            background: #334155;
+        }
+
+        .status-badge.unlocked {
+            background: rgba(52, 211, 153, 0.2);
+            color: var(--success);
+        }
+
+        .status-badge.stamped {
+            background: var(--success);
+            color: #000;
+        }
+
+        .action-btn {
+            width: 100%;
+            padding: 12px;
+            border: none;
+            border-radius: 6px;
+            background: #1e293b;
+            color: #64748b;
+            font-weight: 700;
+            cursor: not-allowed;
+            transition: 0.3s;
+        }
+
+        .action-btn.ready {
+            background: var(--accent);
+            color: var(--bg);
+            cursor: pointer;
+            box-shadow: 0 0 15px rgba(56, 189, 248, 0.4);
+        }
+
+        .stamp-icon {
+            position: absolute;
+            right: 20px;
+            top: 20px;
+            font-size: 3rem;
+            opacity: 0.1;
+            transition: 0.5s;
+        }
+
+        .stamped .stamp-icon {
+            opacity: 1;
+            transform: scale(1.1) rotate(-15deg);
+            color: var(--success);
+        }
+
+        #gps-debug {
+            margin-top: 20px;
+            font-size: 0.8rem;
+            color: #475569;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>GEO BUCKET LIST</h1>
+
+    <div id="list-container"></div>
+
+    <div id="gps-debug">Waiting for GPS coordinate stream...</div>
+
+<script>
+// 1. DATABASE: Target destinations
+// TIP: Change one of these to your actual current Lat/Long to test checking in!
+const bucketList = [
+    {
+        id: "eiffel",
+        name: "Eiffel Tower, Paris",
+        lat: 48.8584,
+        lon: 2.2945,
+        radius: 50 // Allowed radius in meters
+    },
+    {
+        id: "grand_canyon",
+        name: "Grand Canyon Skywalk",
+        lat: 36.0119,
+        lon: -113.8111,
+        radius: 100
+    }
+];
+
+// Persistent user progress saved in browser memory
+let userProgress = JSON.parse(localStorage.getItem('bucketListProgress')) || {};
+
+// 2. MATH: Calculate distance between two GPS coordinates using the Haversine formula
+function getDistanceInMeters(lat1, lon1, lat2, lon2) {
+    const R = 6371000; // Radius of the earth in meters
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = 
+        Math.sin(dLat/2) * Math.sin(dLat/2) +
+        Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon/2) * Math.sin(dLon/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    return R * c; // Distance in meters
+}
+
+// 3. UI: Render list cards
+function renderList(userLat = null, userLon = null) {
+    const container = document.getElementById('list-container');
+    container.innerHTML = '';
+
+    bucketList.forEach(item => {
+        const isStamped = userProgress[item.id] ? true : false;
+        let distanceText = "Distance unknown (Enable GPS)";
+        let isCloseEnough = false;
+
+        if (userLat && userLon) {
+            const distance = getDistanceInMeters(userLat, userLon, item.lat, item.lon);
+            distanceText = `${Math.round(distance).toLocaleString()} meters away`;
+            if (distance <= item.radius) {
+                isCloseEnough = true;
+            }
+        }
+
+        const card = document.createElement('div');
+        card.className = `location-card ${isStamped ? 'stamped' : ''}`;
+        
+        let badgeHTML = `<span class="status-badge">Locked</span>`;
+        if (isStamped) {
+            badgeHTML = `<span class="status-badge stamped">✓ Visited</span>`;
+        } else if (isCloseEnough) {
+            badgeHTML = `<span class="status-badge unlocked">Ready to Check In</span>`;
+        }
+
+        card.innerHTML = `
+            <div class="stamp-icon">📍</div>
+            <div class="location-title">${item.name}</div>
+            <div class="location-coords">${distanceText}</div>
+            ${badgeHTML}
+            <button 
+                class="action-btn ${isCloseEnough && !isStamped ? 'ready' : ''}" 
+                onclick="checkIn('${item.id}')" 
+                ${isCloseEnough && !isStamped ? '' : 'disabled'}>
+                ${isStamped ? 'STAMPED' : 'CLAIM STAMP'}
+            </button>
+        );`;
+        
+        container.appendChild(card);
+    });
+}
+
+// 4. CORE FUNCTION: Triggered when user checks in safely
+function checkIn(id) {
+    userProgress[id] = { timestamp: new Date().toISOString() };
+    localStorage.setItem('bucketListProgress', JSON.stringify(userProgress));
+    alert("🎉 Achievement Unlocked! Stamp added to your passport.");
+    navigator.geolocation.getCurrentPosition(successGPS, errorGPS); // Refresh tracking
+}
+
+// 5. GPS HANDLERS
+function successGPS(position) {
+    const uLat = position.coords.latitude;
+    const uLon = position.coords.longitude;
+    
+    document.getElementById('gps-debug').innerText = `Your Current GPS: ${uLat.toFixed(4)}, ${uLon.toFixed(4)}`;
+    renderList(uLat, uLon);
+}
+
+function errorGPS(err) {
+    document.getElementById('gps-debug').innerText = `GPS Error: ${err.message}. Please enable location permissions.`;
+    renderList(); // Render without distance context
+}
+
+// Request real-time background tracking coordinates
+if ("geolocation" in navigator) {
+    navigator.geolocation.watchPosition(successGPS, errorGPS, {
+        enableHighAccuracy: true,
+        timeout: 5000,
+        maximumAge: 0
+    });
+} else {
+    document.getElementById('gps-debug').innerText = "Geolocation is not supported by your browser.";
+    renderList();
+}
+</script>
+</body>
+</html>
